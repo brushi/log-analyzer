@@ -28,7 +28,7 @@ No external dependencies required. Uses Python standard library only.
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/log-analyzer.git
+git clone https://github.com/brushi/log-analyzer.git
 cd log-analyzer
 ```
 
