@@ -3,7 +3,7 @@
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A simple log parser and analyzer designed to detect suspicious security patterns in system logs. Built for Blue Team practitioners and Security+/CCST students.
+A simple log parser and analyzer designed to detect suspicious security patterns in system logs. Built for Blue Team practitioners.
 
 ## Features
 
@@ -101,14 +101,6 @@ python log_analyzer.py auth.log --threshold 3
   END OF REPORT
 ============================================================
 ```
-
-## Security+ / CCST Concepts Covered
-
-- **Log analysis** - Understanding and interpreting system logs
-- **Authentication monitoring** - Detecting brute force and credential attacks
-- **Privilege management** - Monitoring escalation events
-- **Indicator of Compromise (IoC)** - Identifying suspicious patterns
-- **Incident response** - Generating reports for investigation
 
 ## Project Structure
 

@@ -3,7 +3,7 @@
 Log Analyzer - Blue Team Tool
 A simple log parser and analyzer for detecting suspicious patterns.
 
-Designed for Security+ / CCST students to practice log analysis.
+Designed for Blue Team practitioners to practice log analysis.
 
 Features:
 - Parse Windows Event Logs (text format) and Linux auth logs
