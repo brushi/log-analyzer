@@ -10,7 +10,8 @@ Features:
 - Detect brute force attempts (failed logins)
 - Detect privilege escalation attempts
 - Detect suspicious IP addresses
-- Generate summary reports
+- Generate summary reports (text, JSON, CSV)
+- Colored terminal output
 
 Usage:
     python log_analyzer.py <logfile> [--output report.txt]
@@ -18,40 +19,59 @@ Usage:
 """
 
 import re
+import csv
+import json
 import argparse
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
+from io import StringIO
+
+
+# --- Terminal Colors ---
+
+class Colors:
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+
+def colorize(text, color):
+    """Apply color to text if terminal supports it."""
+    if sys.stdout.isatty():
+        return f"{color}{text}{Colors.RESET}"
+    return text
 
 
 # --- Pattern Definitions ---
 
-# Failed login patterns (Windows and Linux)
 FAILED_LOGIN_PATTERNS = [
-    r"Failed password for .+ from (\d+\.\d+\.\d+\.\d+)",  # Linux SSH
-    r"authentication failure.*rhost=(\S+)",                  # Linux PAM
-    r"Logon Failure.*Account Name:\s+(\S+)",                 # Windows
-    r"EventID 4625.*Source Network Address:\s+(\d+\.\d+\.\d+\.\d+)",  # Windows 4625
-    r"failed login.*from (\d+\.\d+\.\d+\.\d+)",            # Generic
+    r"Failed password for .+ from (\d+\.\d+\.\d+\.\d+)",
+    r"authentication failure.*rhost=(\S+)",
+    r"Logon Failure.*Account Name:\s+(\S+)",
+    r"EventID 4625.*Source Network Address:\s+(\d+\.\d+\.\d+\.\d+)",
+    r"failed login.*from (\d+\.\d+\.\d+\.\d+)",
 ]
 
-# Successful login patterns
 SUCCESS_LOGIN_PATTERNS = [
-    r"Accepted .+ for .+ from (\d+\.\d+\.\d+\.\d+)",       # Linux SSH
-    r"Session opened for user",                              # Linux PAM
-    r"EventID 4624.*Source Network Address:\s+(\d+\.\d+\.\d+\.\d+)",  # Windows 4624
-    r"successful login.*from (\d+\.\d+\.\d+\.\d+)",        # Generic
+    r"Accepted .+ for .+ from (\d+\.\d+\.\d+\.\d+)",
+    r"Session opened for user",
+    r"EventID 4624.*Source Network Address:\s+(\d+\.\d+\.\d+\.\d+)",
+    r"successful login.*from (\d+\.\d+\.\d+\.\d+)",
 ]
 
-# Privilege escalation patterns
 PRIV_ESCALATION_PATTERNS = [
-    r"sudo:.+COMMAND=",                                      # Linux sudo
-    r"privilege escalation",                                 # Generic
-    r"EventID 4672",                                         # Windows special privileges
-    r"su:.*session opened for user root",                    # Linux su to root
+    r"sudo:.+COMMAND=",
+    r"privilege escalation",
+    r"EventID 4672",
+    r"su:.*session opened for user root",
 ]
 
-# Suspicious patterns
 SUSPICIOUS_PATTERNS = [
     (r"rm\s+-rf\s+/", "Potential destructive command"),
     (r"chmod\s+[0-7]*777", "Overly permissive file permissions"),
@@ -75,7 +95,6 @@ class LogAnalyzer:
         self.failed_login_ips = Counter()
         self.success_login_ips = Counter()
         self.total_lines = 0
-        self.parse_errors = 0
 
     def parse_line(self, line):
         """Parse a single log line and check for security events."""
@@ -85,7 +104,6 @@ class LogAnalyzer:
         if not line_stripped:
             return
 
-        # Check failed logins
         for pattern in FAILED_LOGIN_PATTERNS:
             match = re.search(pattern, line_stripped, re.IGNORECASE)
             if match:
@@ -94,7 +112,6 @@ class LogAnalyzer:
                 self.failed_login_ips[ip] += 1
                 return
 
-        # Check successful logins
         for pattern in SUCCESS_LOGIN_PATTERNS:
             match = re.search(pattern, line_stripped, re.IGNORECASE)
             if match:
@@ -103,13 +120,11 @@ class LogAnalyzer:
                 self.success_login_ips[ip] += 1
                 return
 
-        # Check privilege escalation
         for pattern in PRIV_ESCALATION_PATTERNS:
             if re.search(pattern, line_stripped, re.IGNORECASE):
                 self.priv_escalations.append(line_stripped)
                 return
 
-        # Check suspicious patterns
         for pattern, description in SUSPICIOUS_PATTERNS:
             if re.search(pattern, line_stripped, re.IGNORECASE):
                 self.suspicious_events.append({
@@ -125,10 +140,10 @@ class LogAnalyzer:
                 for line in f:
                     self.parse_line(line)
         except FileNotFoundError:
-            print(f"[ERROR] File not found: {filepath}")
+            print(colorize(f"[ERROR] File not found: {filepath}", Colors.RED))
             sys.exit(1)
         except PermissionError:
-            print(f"[ERROR] Permission denied: {filepath}")
+            print(colorize(f"[ERROR] Permission denied: {filepath}", Colors.RED))
             sys.exit(1)
 
     def get_brute_force_ips(self, threshold=5):
@@ -136,76 +151,111 @@ class LogAnalyzer:
         return {ip: count for ip, count in self.failed_login_ips.items()
                 if count >= threshold}
 
-    def generate_report(self):
+    def to_dict(self):
+        """Convert analysis results to a dictionary."""
+        brute_force = self.get_brute_force_ips()
+        return {
+            "generated": datetime.now().isoformat(),
+            "summary": {
+                "total_lines": self.total_lines,
+                "failed_logins": len(self.failed_logins),
+                "successful_logins": len(self.success_logins),
+                "privilege_escalations": len(self.priv_escalations),
+                "suspicious_events": len(self.suspicious_events),
+            },
+            "brute_force_ips": brute_force,
+            "top_failed_ips": dict(self.failed_login_ips.most_common(10)),
+            "top_success_ips": dict(self.success_login_ips.most_common(10)),
+            "privilege_escalations": self.priv_escalations[:20],
+            "suspicious_events": self.suspicious_events[:20],
+        }
+
+    def generate_report(self, use_color=True):
         """Generate a human-readable security report."""
-        report = []
-        report.append("=" * 60)
-        report.append("  LOG ANALYSIS SECURITY REPORT")
-        report.append(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append("=" * 60)
-        report.append("")
+        r = []
+        header = "=" * 60
+        r.append(colorize(header, Colors.CYAN))
+        r.append(colorize("  LOG ANALYSIS SECURITY REPORT", Colors.BOLD + Colors.CYAN))
+        r.append(colorize(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", Colors.CYAN))
+        r.append(colorize(header, Colors.CYAN))
+        r.append("")
 
-        # Summary
-        report.append("[SUMMARY]")
-        report.append(f"  Total lines analyzed:    {self.total_lines}")
-        report.append(f"  Failed login attempts:   {len(self.failed_logins)}")
-        report.append(f"  Successful logins:       {len(self.success_logins)}")
-        report.append(f"  Privilege escalations:   {len(self.priv_escalations)}")
-        report.append(f"  Suspicious events:       {len(self.suspicious_events)}")
-        report.append("")
+        r.append(colorize("[SUMMARY]", Colors.BOLD))
+        r.append(f"  Total lines analyzed:    {self.total_lines}")
+        r.append(f"  Failed login attempts:   {colorize(str(len(self.failed_logins)), Colors.RED)}")
+        r.append(f"  Successful logins:       {colorize(str(len(self.success_logins)), Colors.GREEN)}")
+        r.append(f"  Privilege escalations:   {colorize(str(len(self.priv_escalations)), Colors.YELLOW)}")
+        r.append(f"  Suspicious events:       {colorize(str(len(self.suspicious_events)), Colors.MAGENTA)}")
+        r.append("")
 
-        # Brute force detection
         brute_force = self.get_brute_force_ips()
         if brute_force:
-            report.append("[!] BRUTE FORCE DETECTED")
-            report.append(f"  IPs with 5+ failed attempts:")
+            r.append(colorize("[!] BRUTE FORCE DETECTED", Colors.BOLD + Colors.RED))
+            r.append(f"  IPs with 5+ failed attempts:")
             for ip, count in sorted(brute_force.items(), key=lambda x: x[1], reverse=True):
-                report.append(f"    - {ip}: {count} attempts")
-            report.append("")
+                r.append(colorize(f"    - {ip}: {count} attempts", Colors.RED))
+            r.append("")
 
-        # Top failed login IPs
         if self.failed_login_ips:
-            report.append("[TOP FAILED LOGIN SOURCES]")
+            r.append(colorize("[TOP FAILED LOGIN SOURCES]", Colors.BOLD + Colors.YELLOW))
             for ip, count in self.failed_login_ips.most_common(10):
-                report.append(f"  {ip:>20}: {count} attempts")
-            report.append("")
+                r.append(f"  {ip:>20}: {count} attempts")
+            r.append("")
 
-        # Top successful login IPs
         if self.success_login_ips:
-            report.append("[TOP SUCCESSFUL LOGIN SOURCES]")
+            r.append(colorize("[TOP SUCCESSFUL LOGIN SOURCES]", Colors.BOLD + Colors.GREEN))
             for ip, count in self.success_login_ips.most_common(10):
-                report.append(f"  {ip:>20}: {count} logins")
-            report.append("")
+                r.append(f"  {ip:>20}: {count} logins")
+            r.append("")
 
-        # Privilege escalation events
         if self.priv_escalations:
-            report.append("[PRIVILEGE ESCALATION EVENTS]")
+            r.append(colorize("[PRIVILEGE ESCALATION EVENTS]", Colors.BOLD + Colors.YELLOW))
             for event in self.priv_escalations[:20]:
-                report.append(f"  > {event[:100]}")
+                r.append(f"  > {event[:100]}")
             if len(self.priv_escalations) > 20:
-                report.append(f"  ... and {len(self.priv_escalations) - 20} more")
-            report.append("")
+                r.append(f"  ... and {len(self.priv_escalations) - 20} more")
+            r.append("")
 
-        # Suspicious events
         if self.suspicious_events:
-            report.append("[SUSPICIOUS EVENTS]")
+            r.append(colorize("[SUSPICIOUS EVENTS]", Colors.BOLD + Colors.MAGENTA))
             for event in self.suspicious_events[:20]:
-                report.append(f"  [{event['description']}]")
-                report.append(f"    {event['line'][:100]}")
+                r.append(colorize(f"  [{event['description']}]", Colors.MAGENTA))
+                r.append(f"    {event['line'][:100]}")
             if len(self.suspicious_events) > 20:
-                report.append(f"  ... and {len(self.suspicious_events) - 20} more")
-            report.append("")
+                r.append(f"  ... and {len(self.suspicious_events) - 20} more")
+            r.append("")
 
-        report.append("=" * 60)
-        report.append("  END OF REPORT")
-        report.append("=" * 60)
+        r.append(colorize(header, Colors.CYAN))
+        r.append(colorize("  END OF REPORT", Colors.BOLD + Colors.CYAN))
+        r.append(colorize(header, Colors.CYAN))
 
-        return "\n".join(report)
+        return "\n".join(r)
+
+    def generate_json(self):
+        """Generate JSON report."""
+        return json.dumps(self.to_dict(), indent=2)
+
+    def generate_csv(self):
+        """Generate CSV report of all events."""
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["type", "source_ip", "details"])
+
+        for ip, count in self.failed_login_ips.items():
+            writer.writerow(["failed_login", ip, f"{count} attempts"])
+
+        for ip, count in self.success_login_ips.items():
+            writer.writerow(["success_login", ip, f"{count} logins"])
+
+        for event in self.suspicious_events:
+            writer.writerow(["suspicious", "", event["description"]])
+
+        return output.getvalue()
 
 
 def generate_demo_log():
     """Generate a sample log file for testing."""
-    demo_logs = """Jan 15 08:23:01 server sshd[1234]: Failed password for admin from 192.168.1.100 port 22 ssh2
+    return """Jan 15 08:23:01 server sshd[1234]: Failed password for admin from 192.168.1.100 port 22 ssh2
 Jan 15 08:23:05 server sshd[1235]: Failed password for admin from 192.168.1.100 port 22 ssh2
 Jan 15 08:23:09 server sshd[1236]: Failed password for admin from 192.168.1.100 port 22 ssh2
 Jan 15 08:23:13 server sshd[1237]: Failed password for admin from 192.168.1.100 port 22 ssh2
@@ -233,7 +283,6 @@ Jan 15 08:45:30 server sshd[1255]: Failed password for user1 from 203.0.113.42 p
 Jan 15 08:50:00 server sshd[1256]: Accepted publickey for deploy from 10.0.0.1 port 22 ssh2
 Jan 15 09:00:00 server sudo: deploy : TTY=pts/1 ; PWD=/opt/app ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx
 """
-    return demo_logs
 
 
 def main():
@@ -242,7 +291,7 @@ def main():
         epilog="Examples:\n"
                "  python log_analyzer.py /var/log/auth.log\n"
                "  python log_analyzer.py windows_events.log --output report.txt\n"
-               "  python log_analyzer.py --demo",
+               "  python log_analyzer.py --demo --format json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("logfile", nargs="?", help="Path to the log file to analyze")
@@ -250,30 +299,43 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Run with demo data")
     parser.add_argument("--threshold", "-t", type=int, default=5,
                         help="Failed login threshold for brute force detection (default: 5)")
+    parser.add_argument("--format", "-f", choices=["text", "json", "csv"], default="text",
+                        help="Output format (default: text)")
+    parser.add_argument("--no-color", action="store_true", help="Disable colored output")
 
     args = parser.parse_args()
+
+    if args.no_color:
+        Colors.RED = Colors.GREEN = Colors.YELLOW = Colors.BLUE = Colors.MAGENTA = Colors.CYAN = Colors.BOLD = ""
+        Colors.RESET = ""
 
     analyzer = LogAnalyzer()
 
     if args.demo:
-        print("[*] Running in demo mode with sample log data...")
+        print(colorize("[*] Running in demo mode with sample log data...", Colors.CYAN))
         demo_data = generate_demo_log()
         for line in demo_data.splitlines():
             analyzer.parse_line(line)
     elif args.logfile:
-        print(f"[*] Analyzing: {args.logfile}")
+        print(colorize(f"[*] Analyzing: {args.logfile}", Colors.CYAN))
         analyzer.analyze_file(args.logfile)
     else:
         parser.print_help()
         sys.exit(1)
 
-    report = analyzer.generate_report()
+    if args.format == "json":
+        report = analyzer.generate_json()
+    elif args.format == "csv":
+        report = analyzer.generate_csv()
+    else:
+        report = analyzer.generate_report()
+
     print(report)
 
     if args.output:
         with open(args.output, "w") as f:
             f.write(report)
-        print(f"\n[*] Report saved to: {args.output}")
+        print(colorize(f"\n[*] Report saved to: {args.output}", Colors.GREEN))
 
 
 if __name__ == "__main__":

