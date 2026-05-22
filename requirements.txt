@@ -1,0 +1,7 @@
+# No external dependencies required
+# This tool uses only Python standard library modules:
+# - re (regular expressions)
+# - argparse (command-line arguments)
+# - sys (system utilities)
+# - collections (Counter, defaultdict)
+# - datetime (timestamps)
